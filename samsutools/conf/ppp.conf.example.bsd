@@ -1,0 +1,16 @@
+default:
+    set log Phase Chat LCP IPCP CCP tun command
+
+mobilephone:
+    set server /var/run/ppp/mobilephone-ppp "" 0177
+    set device /dev/cuaU0
+    set cd off
+    set dial
+    set speed 115200
+    set timeout 0
+    set ctsrts on
+    set ifaddr 10.0.0.1 10.0.0.2
+    open
+    nat enable yes
+    nat addr 10.0.0.1 127.0.0.1
+

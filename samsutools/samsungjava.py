@@ -79,46 +79,39 @@ for filename in args:
         l = l.strip().split(' ', 1)
         if l[0] == 'MIDlet-Jar-URL:':
             if (l[1].find('://') != -1) or (not os.access(os.path.basename(l[1]), os.R_OK)):
-                sys.stderr.write('File "%s" not found.\n' % l[1])
+                sys.stderr.write('File "%s" not found in current directory.\n' % l[1])
                 sys.exit(1)
     f.close()
 
 
 # Our request handler.
 class http_handler(BaseHTTPServer.BaseHTTPRequestHandler):
-    server_version = 'PyJUp/0.1'
+    server_version = 'PyJUp/20070801'
     def do_GET(self):
         global args
         basename = self.path[self.path.rindex('/')+1:]
         if basename == 'getNextApp.jad':
-            if len(args) == 0:
-                # No more Java applications to upload.
-                self.send_response(404)
-                self.send_header('Connection', 'close')
-                self.end_headers()
-            else:
-                # Send next JAD file.
-                f = open(args[0])
-                file_cont = f.read()
-                f.close()
-                self.send_response(200)
-                self.send_header('Connection', 'close')
-                self.send_header('Content-type', 'text/vnd.sun.j2me.app-descriptor')
-                self.send_header('Content-Length', len(file_cont))
-                self.end_headers()
-                self.wfile.write(file_cont)
-                args = args[1:]
-        else:
-            # Send a JAR file.
-            f = open(basename)
-            file_cont = f.read()
+            # Read next JAD file.
+            f = open(args[0])
+            content = f.read()
             f.close()
-            self.send_response(200)
-            self.send_header('Connection', 'close')
-            self.send_header('Content-type', 'application/java-archive')
-            self.send_header('Content-Length', len(file_cont))
-            self.end_headers()
-            self.wfile.write(file_cont)
+            # Remove from list.
+            args = args[1:]
+            # Set content type.
+            content_type = 'text/vnd.sun.j2me.app-descriptor'
+        else:
+            # Read a JAR file.
+            f = open(basename)
+            content = f.read()
+            f.close()
+            # Set content type.
+            content_type = 'application/java-archive'
+        self.send_response(200)
+        self.send_header('Connection', 'close')
+        self.send_header('Content-type', content_type)
+        self.send_header('Content-Length', len(content))
+        self.end_headers()
+        self.wfile.write(content)
             
 
 # Create HTTP server.

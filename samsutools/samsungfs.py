@@ -28,31 +28,22 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
+version = 'SamsungFS 2007-08-01-alpha'
+
+
 import sys, os, tty, re, time, select, struct, zlib
 import fuse, errno, stat
+from fuse import Fuse
 
-def copyright():
-        print """
-File System for Samsung mobile phones.
-Copyright (c) 2007 Paulo Matias
+if not hasattr(fuse, '__version__'):
+    raise RuntimeError, 'Please update fuse-python.'
 
-This is a free software licensed under a BSD license AND
-HAS NO WARRANTIES. See source code for details.
-
-This is a STRONGLY EXPERIMENTAL SOFTWARE. Use only if you
-can't setup your mobile phone for usb-storage or bluetooth.
-"""
-
-def usage():
-    print """Usage: %s mount-point [dev=tty-device[, fuse-options]]
-       dev=tty-device   TTY device the mobile phone is plugged into.
-                        Defaults to /dev/ttyACM0.
-""" % sys.argv[0]
-    sys.exit(1)
+fuse.fuse_python_api = (0, 2)
 
 
 class ModemDevice:
-    __skip__ = 0
+    timeout_resolution = 0.01   # Resolution in seconds of recv() timeout timer.
+    __skip__ = 0                # Data to be skipped in next recv() for cutting echoes.
     
     def __init__(self, modem_device = '/dev/modem'):
         """ Open and init the device as a RAW tty. """
@@ -72,18 +63,18 @@ class ModemDevice:
         """ Read data from the device until one of the values of the expect list
         is found at the end of the stream or until timeout is reached. Returns a
         tuple (i, r) where i is the index at expect of the found value or None if
-        timeout was reached, and r is the data read until the value expected. """
+        timeout was reached, and r is the data read before the expected value. """
         
         max_time = time.time() + timeout  # Timestamp of the timeout time.
         buf = ''
         
         while 1:
-            if len(select.select([self.__fd__], [], [], 0.1)[0]) == 1:
+            if len(select.select([self.__fd__], [], [], self.timeout_resolution)[0]) == 1:
                 # There is new data, read it.
                 buf += os.read(self.__fd__, 1024)
                 # Skip data if there is data to skip.
                 if self.__skip__ != 0:
-                    skip = min([self.__skip__, len(buf)])
+                    skip = min(self.__skip__, len(buf))
                     buf = buf[skip:]
                     self.__skip__ -= skip
                 # Check for one of the expected values at end of stream.
@@ -97,12 +88,19 @@ class ModemDevice:
                 return (None, buf)
     
 
-def sepdirfname(path):
+def dir_and_basename(path):
     """ Separates dir from base filename. Returns a tuple (dir, filename). """
-    i = path.rindex('/')
-    dir = path[:i+1]
-    filename = path[i+1:]
-    return (dir, filename)
+    return (os.path.dirname(path), os.path.basename(path))
+
+def signed2unsigned(n):
+    """ Converts a signed int to an unsigned one. """
+    return struct.unpack('I', struct.pack('i', n))[0]
+
+def clear_dir_trailing_slash(dir):
+    """ Removes trailing slash from dir if it isn't the root. """
+    if (len(dir) != 1) and (dir[-1:] == '/'):
+        dir = dir[:-1]
+    return dir
     
     
 class UnexpectedResponse(Exception):
@@ -119,79 +117,72 @@ class Samsung(ModemDevice):
     __fileinfo_cache_timeout__ = 10.0       # Seconds to consider the cache valid.
         
     def __init__(self, modem_device = '/dev/ttyACM0'):
-        """ Inits Samsung mobile phone device and gather model name. """
+        """ Inits Samsung mobile phone device and gathers model name. """
         ModemDevice.__init__(self, modem_device)
         
         self.send('ATZ\r\n')
         (i, r) = self.recv(['OK\r\n'])
-        if i != 0:
-            raise UnexpectedResponse, r
         
         self.send('AT+CGMM\r\n')
         (i, r) = self.recv(['OK\r\n'])
-        if (i != 0) or (r.find('SAMSUNG') == -1):
+        if (i != 0) or (r.upper().find('SAMSUNG') == -1):
             raise UnexpectedResponse, r
         self.model = r.strip()
     
     def cd(self, dir = '/'):
         """ Change current dir. """
-        if (len(dir) != 1) and (dir[-1:] == '/'): dir = dir[:-1]
+        dir = clear_dir_trailing_slash(dir)
         self.send('AT+FSCD="' + dir + '"\r\n')
         (i, r) = self.recv(['OK\r\n'])
         if i != 0:
             raise IOError, "Can't change dir."
         self.__curdir__ = dir
     
-    def __get__flist__(self, expr, addtup=()):
-        """ Returns a list of tuples gathered from expr regular expression for
-        each line of the file list sent by mobile phone. The addtup parameter
-        is added at the end of each tuple. """
-        regex = re.compile(expr)
+    def __yield__flist__(self, expr):
+        """ Yields tuples gathered from expr regular expression for each line of the
+        file list sent by mobile phone. """
         flist = []
         while 1:
             # #OK# -> there is more data. OK -> end of data.
             (i, r) = self.recv(['#OK#\r\n', 'OK\r\n'], 0.5)
             for l in r.strip().split('\n'):
-                try: flist.append(regex.match(l.strip()).groups() + addtup)
+                try: yield re.search(expr, l.strip()).groups()
                 except: pass
             if i != 0:
-                return flist
+                break
             self.send('##>\r\n', False)   # Request more data.
 
     def ls(self, dir = None):
-        """ List files at dir. Returns a list of (name, size, timestamp) tuples.
+        """ List files at dir. Yields (name, size, timestamp) tuples.
         Directories will have (size, timestamp) == (0, 0). """
         if dir == None: dir = self.__curdir__
-        if (len(dir) != 1) and (dir[-1:] == '/'): dir = dir[:-1]
+        dir = clear_dir_trailing_slash(dir)
         # Perhaps directories are listed by AT+FSDI command.
         self.send('AT+FSDI="' + dir + '"\r\n')
-        flist1 = self.__get__flist__('^\\+FSDI[^,]+,[^"]*"([^"]+)"', (0, 0))
+        for tup in self.__yield__flist__(r'^\+FSDI[^,]+,[^"]*"([^"]+)"'):
+            yield tup + (0, 0)
         # Perhaps files are listed by AT+FSDL command.
         self.send('AT+FSDL="' + dir + '"\r\n')
-        flist2 = self.__get__flist__('^\\+FSDL[^,]+,[^"]*"([^"]+)"[^,]*,[^,]+,[^,]+,[^,]+,[^,]+,([0-9]+)[^,]*,[^,]+,[^"]*"([^"]+)"')
-        # Convert date & time to timestamp.
-        re_time = re.compile('([0-9]+)/([0-9]+)/([0-9]+)\\s+([0-9]+):([0-9]+)([AP])M')
-        for i in range(len(flist2)):
-            (fname, fsize, fdate) = flist2[i]
+        re_flist = r'^\+FSDL[^,]+,[^"]*"([^"]+)"[^,]*,[^,]+,[^,]+,[^,]+,[^,]+,(\d+)[^,]*,[^,]+,[^"]*"([^"]+)"'
+        for (fname, fsize, fdate) in self.__yield__flist__(re_flist):
+            # Convert date & time to timestamp.
             try:
-                (d,m,y,th,tm,ampm) = re_time.match(fdate).groups()
+                (d,m,y,th,tm,ampm) = re.search(r'(\d+)/(\d+)/(\d+)\s+(\d+):(\d+)([AP])M', fdate).groups()
                 if ampm == 'P': th = int(th) + 12
                 fdate = int(time.mktime((int(y),int(m),int(d),int(th),int(tm),0,0,0,0)))
             except:
                 fdate = 0
-            flist2[i] = (fname, int(fsize), fdate)
-        # Concatenate two lists and return.
-        return flist1 + flist2
+            yield (fname, int(fsize), fdate)
 
     def fileinfo(self, path):
         """ Returns a tuple (size, timestamp) for file at path. Directories will
         have (size, timestamp) == (0, 0). """
-        if path[-1:] == '/': path = path[:-1]
-        if path == '': return (0, 0)   # Root dir.
+        path = clear_dir_trailing_slash(path)
+        if path == '/': return (0, 0)   # Root dir.
         # Separate parent directory and filename.
-        (dir, filename) = sepdirfname(path)
+        (dir, filename) = dir_and_basename(path)
         # Check cache. Fill cache if empty or timeouted.
-        if (self.__fileinfo_cache__.has_key(dir)) and (time.time() - self.__fileinfo_cache__[dir][0] < self.__fileinfo_cache_timeout__):
+        if (dir in self.__fileinfo_cache__) and (time.time() - self.__fileinfo_cache__[dir][0] < self.__fileinfo_cache_timeout__):
             flist = self.__fileinfo_cache__[dir][1]
         else:
             flist = {}
@@ -199,22 +190,21 @@ class Samsung(ModemDevice):
                 flist[fname] = (fsize, fdate)
             self.__fileinfo_cache__[dir] = (time.time(), flist)
         # If not in cache, file does not exist.
-        if not flist.has_key(filename):
+        if not filename in flist:
             raise IOError, 'File not found.'
         # Return file info.
         return flist[filename]
         
-
     def rm(self, filename):
-        """ Removes the file. Perhaps you have to cd() to directory before doing this. """
+        """ Removes the file. File must be in the current directory. """
         self.send('AT+FSFE=0,"' + filename + '"\r\n')
         (i, r) = self.recv(['OK\r\n'])
         if i != 0:
             raise IOError, "Can't remove file."
 
     def get(self, filename):
-        """ Gets the file and returns its contents. Perhaps you have to cd() to directory
-        before doing this."""
+        """ Gets the file and returns its contents.
+        File must be in the current directory. """
         self.send('AT+FSFR=-1,"' + filename + '"\r\n')
         (i, r) = self.recv(['#OK#\r\n'])
         if i != 0:
@@ -236,221 +226,212 @@ class Samsung(ModemDevice):
             self.send('##>\r\n', False)
 
     def put(self, filename, data):
-        """ Puts given data in the file. Perhaps you have to cd() to directory before doing
-        this. It will fail if file already exists. """
+        """ Puts given data in the file. File must be in the current directory.
+        It will fail if file already exists. """
         self.send('AT+FSFW=-1,"%s",0,"",%d\r\n' % (filename, len(data)))
         (i, r) = self.recv(['##>\r\n'])
         if i != 0:
             raise IOError, "Can't write file."
         while len(data) > 0:
             # XXX Mobile phone will not treat this as a stream. It will treat it as blocks, as
-            # XXX received via USB. Should read or set wMaxPacketSize for USB device.
-            # XXX Perhaps 64 is the default (at least for Linux).
-            # XXX Any OS-independent way?
+            # XXX received via USB. Should read or set max packet size for USB device.
+            # Perhaps 64 is the default max packet size for high speed USB devices.
             # The CRC32 max length is 11.
             blocksize = 64 - 11
             block = data[:blocksize]
             data  = data[blocksize:]
             # It uses unsigned CRC32 for sending data. Convert it.
-            crc = '%u' % struct.unpack('I', struct.pack('i', zlib.crc32(block)))[0]
+            crc = '%u' % signed2unsigned(zlib.crc32(block))
             # Construct block.
             block = crc + ',' + block
             self.send(block, False)
-            # XXX How to check response? It couldn't be received via tty, even it being possible
-            # XXX to sniff it via usbmon. Data simply disappears!
-            self.recv(['##>\r\n', 'OK\r\n'], 0.1)
-            
+            # XXX How can we check response? It couldn't be received via tty, even it being
+            # XXX sniffable via usbmon. Data simply disappears at higher levels! O.o
+            self.recv(['##>\r\n', 'OK\r\n'], 0.01)
+      
 
-class SamsungFS(fuse.Fuse, Samsung):
-    """ Samsung FUSE File System. Yes, I know, it's a crappy piece of code.
-    But Python-FUSE is already very crappy and has very poor documentation. """
+# XXX Sadly, Python2.4 does not support "with" statements.
+# XXX Port all ObjLock use when Python2.5 becomes widely adopted.
+class ObjLock:
+    """ Issues a object-wide lock. """
+    def __init__(self, obj):
+        """ Locks obj. Raises IOError EBUSY if already locked. """
+        if hasattr(obj, '__is_locked__') and obj.__is_locked__:
+            err = IOError()
+            err.errno = errno.EBUSY
+            raise err
+        obj.__is_locked__ = True
+        self.obj = obj
+    def __del__(self):
+        """ Unlocks obj. """
+        try: self.obj.__is_locked__ = False
+        except: pass
 
-    # Put here because it was at documentation (can I call it documentation?)
-    flags = 0
-    multithreaded = 0
+
+class SamsungFS_stat(fuse.Stat):
+    def __init__(self, finfo):
+        """ Constructs a FUSE stat from a fileinfo() tuple. """
+        if finfo == (0, 0):
+            self.st_mode = 0755 | stat.S_IFDIR
+        else:
+            self.st_mode = 0644 | stat.S_IFREG
+        self.st_ino = 0
+        self.st_dev = 0
+        self.st_nlink = 1
+        self.st_uid = os.getuid()
+        self.st_gid = os.getgid()
+        self.st_size = finfo[0]
+        self.st_atime = finfo[1]
+        self.st_mtime = finfo[1]
+        self.st_ctime = finfo[1]
+
+
+class SamsungFS(Fuse, Samsung):
+    """ Samsung FUSE File System. """
     
-    in_use = False         # True if filesystem is in use. Used for locks.
     last_created = None    # Path of the last created file.
     opened_file = None     # Path of the current opened file.
     
-    def __lock_fs__(self):
-        if self.in_use: return False
-        self.in_use = True
-        return True
-
-    def __unlock_fs__(self):
-        self.in_use = False
-
     def __init__(self, *args, **kw):
         fuse.Fuse.__init__(self, *args, **kw)
-        dev = '/dev/ttyACM0'
-        if self.optdict.has_key('dev'): dev = self.optdict['dev']
-        Samsung.__init__(self, dev)
     
     def getattr(self, path):
-        """
-        - st_mode (protection bits)
-        - st_ino (inode number)
-        - st_dev (device)
-        - st_nlink (number of hard links)
-        - st_uid (user ID of owner)
-        - st_gid (group ID of owner)
-        - st_size (size of file, in bytes)
-        - st_atime (time of most recent access)
-        - st_mtime (time of most recent content modification)
-        - st_ctime (platform dependent; time of most recent metadata change on Unix,
-                    or the time of creation on Windows).
-        """
-        if not self.__lock_fs__():
-            return -errno.EBUSY
+        lock = ObjLock(self)
+        
         if path == self.last_created:
             finfo = (0, int(time.time()))
         else:
             try: finfo = self.fileinfo(path)
             except: finfo = None
-        self.__unlock_fs__()
+            
+        del lock
+        
         if finfo == None:
             return -errno.ENOENT
-        if finfo == (0, 0):
-            mode = 0750 | stat.S_IFDIR
-        else:
-            mode = 0640 | stat.S_IFREG
-        return (mode,zlib.crc32(path),0,1,os.getuid(),os.getgid(),finfo[0],finfo[1],finfo[1],finfo[1])
+        
+        return SamsungFS_stat(finfo)
 
-    def getdir(self, path):
-        """
-        return: [('file1', 0), ('file2', 0), ... ]
-        """
-        if not self.__lock_fs__():
-            return -errno.EBUSY
-        flist = [(x[0], 0) for x in self.ls(path)]
-        self.__unlock_fs__()
-        return flist
-
-    def mythread(self):
-        -errno.ENOSYS
-
-    def chmod(self, path, mode):
-        -errno.ENOSYS
-
-    def chown(self, path, uid, gid):
-        -errno.ENOSYS
-
-    def fsync(self, path, isFsyncFile):
-        -errno.ENOSYS
-
-    def link(self, targetPath, linkPath):
-        -errno.ENOSYS
-
-    def mkdir(self, path, mode):
-        -errno.ENOSYS
+    def readdir(self, path, offset):
+        lock = ObjLock(self)
+        for (fname, fsize, fdate) in self.ls(path):
+            yield fuse.Direntry(fname)
+        del lock
 
     def mknod(self, path, mode, dev):
-        if not self.__lock_fs__():
-            return -errno.EBUSY
+        lock = ObjLock(self)
         self.last_created = path
-        self.__unlock_fs__()
-        return 0
+        del lock
 
     def open(self, path, flags):
-        if self.opened_file != None: # Max 1 file.
+        if self.opened_file != None:
+            # Max 1 file.
             return -errno.ENFILE
-        if not self.__lock_fs__():
-            return -errno.EBUSY
+        
+        lock = ObjLock(self)
+        
         self.opened_file = path
         self.opened_file_changed = False
-        (dir, filename) = sepdirfname(path)
+        
+        (dir, filename) = dir_and_basename(path)
         try:
             self.cd(dir)
             self.file_buf = self.get(filename)
         except:
             self.file_buf = ''
-        self.__unlock_fs__()
-        return 0
+        
+        del lock
 
     def read(self, path, length, offset):
+        if self.opened_file == None:
+            # Fix for some buggy implementations.
+            self.open(path, os.O_RDWR)
         if path != self.opened_file:
             return -errno.EBADF
         return self.file_buf[offset:offset+length]
 
-    def readlink(self, path):
-        -errno.ENOSYS
-
     def release(self, path, flags):
         if path != self.opened_file:
             return -errno.EBADF
-        if not self.__lock_fs__():
-            return -errno.EBUSY
+        
+        raise_err = False
+        
+        lock = ObjLock(self)
+        
         if path == self.last_created:
             self.last_created = None
+        
         if self.opened_file_changed:
-            (dir, filename) = sepdirfname(path)
-            self.cd(dir)
-            try: self.rm(filename)
-            except: pass
-            self.put(filename, self.file_buf)
+            try:
+                (dir, filename) = dir_and_basename(path)
+                self.cd(dir)
+                try: self.rm(filename)
+                except: pass
+                self.put(filename, self.file_buf)
+            except:
+                raise_err = True
             self.opened_file_changed = False
+        
         self.opened_file = None
+
         del self.file_buf
-        self.__unlock_fs__()
-        return 0
-
-    def rename(self, oldPath, newPath):
-        # XXX Implement rename. Needs protocol work.
-        -errno.ENOSYS
-
-    def rmdir(self, path):
-        -errno.ENOSYS
-
-    def statfs(self):
-        -errno.ENOSYS
-
-    def symlink(self, targetPath, linkPath):
-        -errno.ENOSYS
-
-    def truncate(self, path, size):
-        -errno.ENOSYS
+        del lock
+        
+        if raise_err:
+            return -errno.EIO
 
     def unlink(self, path):
-        (dir, filename) = sepdirfname(path)
-        if not self.__lock_fs__():
-            return -errno.EBUSY
+        lock = ObjLock(self)
         try:
+            (dir, filename) = dir_and_basename(path)
             self.cd(dir)
             self.rm(filename)
-            self.__unlock_fs__()
-            return 0
         except:
-            self.__unlock_fs__()
+            del lock
             return -errno.ENOENT
-
-    def utime(self, path, times):
-        -errno.ENOSYS
+        del lock
 
     def write(self, path, buf, offset):
+        if self.opened_file == None:
+            # Fix for some buggy implementations.
+            self.open(path, os.O_RDWR)
         if path != self.opened_file:
             return -errno.EBADF
         self.file_buf = self.file_buf[:offset] + buf
         self.opened_file_changed = True
         return len(buf)
+    
+    def main(self, *a, **kw):
+        if self.fuse_args.mount_expected():
+            Samsung.__init__(self, self.ttydev)
+        return Fuse.main(self, *a, **kw)
 
+
+def main():
+    
+    usage = """
+File System for Samsung mobile phones.
+Copyright (c) 2007 Paulo Matias
+
+This is a free software licensed under a BSD license AND
+HAS NO WARRANTIES. See source code for details.
+
+This is a STRONGLY EXPERIMENTAL SOFTWARE. Use it only if you
+can't setup your mobile phone for usb-storage or bluetooth.
+
+""" + Fuse.fusage
+    
+    def_ttydev = '/dev/cuaU0'
+    if not os.path.exists(def_ttydev):
+        def_ttydev = '/dev/ttyACM0'
+    
+    fs = SamsungFS(version=version, usage=usage, dash_s_do='setsingle')
+    fs.ttydev = def_ttydev
+    fs.parser.add_option(mountopt='ttydev', metavar='DEV', default=def_ttydev, 
+                     help='tty device the mobile phone is plugged into [default: %default]')
+    fs.parse(values=fs, errex=1)
+    fs.main()
 
 
 if __name__ == '__main__':
-    copyright()
-    if len(sys.argv) < 2:
-        usage()
+    main()
     
-    if os.fork() == 0:
-        fs = SamsungFS()
-        print
-        print "Mobile phone model: %s" % fs.model
-        print "Type 'fusermount -u mount-point' to umount."
-        print
-        # Detach.
-        os.setsid()
-        os.close(0)
-        os.close(1)
-        os.close(2)
-        # Main loop.
-        fs.main()
