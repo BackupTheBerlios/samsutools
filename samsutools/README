@@ -1,0 +1,132 @@
+                           ==========================                          
+                            SAMSUTOOLS DOCUMENTATION                           
+                           ==========================                          
+
+This file provides a summarized documentation for each tool. For complete docu-
+mentation, please check the project wiki at http://samsutools.berlios.de.
+
+DISCLAIMER:  This  free  software  is  licensed  under  BSD  license and HAS NO
+WARRANTY. This project does not have any affiliation with SAMSUNG.
+
+
+                                  ===========                                  
+                                   SAMSUNGFS                                   
+                                  ===========                                  
+
+1. DESCRIPTION
+
+SamsungFS allows you to mount your mobile phone as a disk. It links to your mo-
+bile phone via USB and mounts it in a directory using FUSE. It  allows  you  to
+transfer  files  between  your mobile phone and your computer, including photos
+and videos recorded from your mobile phone camera.
+
+2. PREREQUISITES
+
+Install  FUSE  and fuse-python in your operating system. Under Linux, it should
+be available in your  distribution  package  repository.  Under  FreeBSD,  it's
+available  in  Ports. Under NetBSD, it should be possible to use librefuse, but
+it will be available only in NetBSD 5. As the date of writing, OpenBSD  had  no
+plans to support FUSE.
+
+You  must  have USB ACM support enabled. Under Linux, the option CONFIG_USB_ACM
+must be enabled in kernel build. It should come by default  in  most  distribu-
+tions.  Under  FreeBSD,  the  module umodem.ko must be loaded. Under NetBSD and
+OpenBSD, it comes enabled by default in the GENERIC kernel.
+
+3. INSTALLATION
+
+Just copy samsungfs.py to a directory present in your PATH, like /usr/bin.
+
+4. USAGE
+
+In most cases, you only need to call:
+
+    samsungfs.py mount-point
+
+Then  you  can  access your files at mount-point. When you are done, umount the
+file system by calling:
+
+    fusermount -u mount-point
+
+or:
+
+    umount mount-point
+
+If  your  mobile phone device is not at /dev/cuaU0 nor at /dev/ttyACM0, you can
+modify it via command line when mounting the file system by calling:
+
+    samsungfs.py mount-point -o ttydev=/dev/xxxx
+
+
+                                 =============                                 
+                                  SAMSUNGJAVA                                  
+                                 =============                                 
+
+1. DESCRIPTION
+
+SamsungJava  allows  you to install Java J2ME applications in your mobile phone
+for free via USB cable. Without SamsungJava, these applications could  only  be
+installed by tariffed WAP transfer.
+
+2. PREREQUISITES
+
+Install Python in your operating system. Under Linux, it should be available in
+your distribution package repository, although a lot of distributions come with
+Python  installed by default these days. Under FreeBSD and OpenBSD, it's avail-
+able in Ports. Under NetBSD, it's available in Pkgsrc.
+
+You  must  have USB ACM support enabled. Under Linux, the option CONFIG_USB_ACM
+must be enabled in kernel build. It should come by default  in  most  distribu-
+tions.  Under  FreeBSD,  the  module umodem.ko must be loaded. Under NetBSD and
+OpenBSD, it comes enabled by default in the GENERIC kernel.
+
+You  must  have  PPP support enabled. Under Linux, you must have PPP support in
+kernel and pppd installed. It should come by  default  in  most  distributions.
+Under  NetBSD, you must install net/userppp package, because pppd can't be used
+with some mobile phones under BSD systems. Under FreeBSD and  OpenBSD,  userppp
+comes installed by default.
+
+3. INSTALLATION
+
+Copy samsungjava.py to a directory present in your PATH, like /usr/bin.
+
+Under  Linux,  revise  the conf/ppp.setup.example.linux script and modify it if
+you want to satisfy your needs.
+
+Under  BSD  systems, revise conf/ppp.conf.example.bsd, modify it if you want to
+satisfy your needs and copy it to /etc/ppp/ppp.conf (FreeBSD and OpenBSD) or to
+/usr/pkg/etc/ppp/ppp.conf (NetBSD).
+
+4. USAGE
+
+Before  installing  J2ME applications, check the .jad file using a text editor.
+It must have only the .jar filename as the MIDlet-Jar-URL  parameter,  like  as
+following:
+
+    MIDlet-Jar-URL: application.jar
+
+If it contains an URL, please modify the line that contains it as the above ex-
+ample using the text editor. Then place the .jad and .jar  files  at  the  same
+directory. SamsungJava will not find the .jar file if you don't do that.
+
+Under Linux, call the configuration script to setup PPP.
+
+Under BSD systems, call:
+
+    ppp mobilephone
+
+Next  setup  your mobile phone to make a PPP connection over USB. The procedure
+depends on the mobile phone model. See the project wiki.
+
+Then you will get feedback at your computer terminal, showing that a connection
+was been established. Call SamsungJava:
+
+    samsungjava.py application.jad
+
+Finally,  setup  your mobile phone to do Serial Download. The procedure depends
+on the mobile phone model, too. You will get feedback at the mobile phone  dis-
+play, showing the download progress.
+
+After the download, you can close PPP and SamsungJava by pressing Ctrl-C.
+
+
