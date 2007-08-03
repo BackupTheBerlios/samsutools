@@ -28,7 +28,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-version = 'SamsungFS 2007-08-01-alpha'
+version = 'SamsungFS cvs'
 
 
 import sys, os, tty, re, time, select, struct, zlib
@@ -123,10 +123,13 @@ class Samsung(ModemDevice):
         self.send('ATZ\r\n')
         (i, r) = self.recv(['OK\r\n'])
         
-        self.send('AT+CGMM\r\n')
+        self.send('AT+CGMI\r\n')
         (i, r) = self.recv(['OK\r\n'])
         if (i != 0) or (r.upper().find('SAMSUNG') == -1):
             raise UnexpectedResponse, r
+
+	self.send('AT+CGMM\r\n')
+        (i, r) = self.recv(['OK\r\n'])
         self.model = r.strip()
     
     def cd(self, dir = '/'):
