@@ -128,7 +128,7 @@ class Samsung(ModemDevice):
         if (i != 0) or (r.upper().find('SAMSUNG') == -1):
             raise UnexpectedResponse, r
 
-	self.send('AT+CGMM\r\n')
+        self.send('AT+CGMM\r\n')
         (i, r) = self.recv(['OK\r\n'])
         self.model = r.strip()
     
