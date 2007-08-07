@@ -28,10 +28,10 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-version = 'SamsungFS cvs'
+version = 'SamsungFS 2007-08-07-alpha'
 
 
-import sys, os, tty, re, time, select, struct, zlib
+import sys, os, tty, fcntl, re, time, select, struct, zlib
 import fuse, errno, stat
 from fuse import Fuse
 
@@ -46,9 +46,24 @@ class ModemDevice:
     __skip__ = 0                # Data to be skipped in next recv() for cutting echoes.
     
     def __init__(self, modem_device = '/dev/modem'):
-        """ Open and init the device as a RAW tty. """
-        self.__fd__ = os.open(modem_device, os.O_RDWR|os.O_NONBLOCK|os.O_NOCTTY)
-        tty.setraw(self.__fd__)
+        """ Open the device. """
+        self.__fd__ = fd = os.open(modem_device, os.O_RDWR|os.O_NDELAY|os.O_NOCTTY)
+
+        opt = fcntl.fcntl(fd, fcntl.F_GETFL, 0)
+        fcntl.fcntl(fd, fcntl.F_SETFL, opt & (~os.O_NDELAY))
+
+        tty.setraw(fd)
+        (iflag, oflag, cflag, lflag, ispeed, ospeed, cc) = tty.tcgetattr(fd)
+        
+        ispeed = ospeed = cflag = tty.B115200
+        cflag |= tty.CS8 | tty.CRTSCTS | tty.CREAD | tty.CLOCAL
+        lflag  = 0
+
+        cc[tty.VTIME] = 50
+        cc[tty.VMIN] = 0
+
+        tty.tcsetattr(fd, tty.TCSANOW, [iflag, oflag, cflag, lflag, ispeed, ospeed, cc])
+        tty.tcflush(fd, tty.TCIOFLUSH)
         
     def __del__(self):
         os.close(self.__fd__)
