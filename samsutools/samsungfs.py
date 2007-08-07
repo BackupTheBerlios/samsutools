@@ -438,9 +438,9 @@ can't setup your mobile phone for usb-storage or bluetooth.
 
 """ + Fuse.fusage
     
-    def_ttydev = '/dev/cuaU0'
-    if not os.path.exists(def_ttydev):
-        def_ttydev = '/dev/ttyACM0'
+    for def_ttydev in ['/dev/cuaU0', '/dev/dtyU0', '/dev/ttyU0', '/dev/ttyUSB0', '/dev/ttyACM0']:
+        if os.path.exists(def_ttydev):
+            break
     
     fs = SamsungFS(version=version, usage=usage, dash_s_do='setsingle')
     fs.ttydev = def_ttydev
