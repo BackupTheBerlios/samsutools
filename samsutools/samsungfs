@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 #
 # File System for Samsung mobile phones.
 # Copyright (c) 2007 Paulo Matias
@@ -28,7 +28,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-version = 'SamsungFS 2007-08-07-alpha'
+version = 'SamsungFS CVS'
 
 
 import sys, os, tty, fcntl, re, time, select, struct, zlib
