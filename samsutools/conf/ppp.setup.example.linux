@@ -1,4 +1,4 @@
 #!/bin/sh
-iptables -t nat -A PREROUTING -d 127.0.0.1 -i ppp0 -j DNAT --to 10.0.0.1
+iptables -t nat -A PREROUTING -d 127.0.0.1 -i ppp+ -j DNAT --to 10.0.0.1
 pppd /dev/ttyACM0 115200 10.0.0.1:10.0.0.2 noauth silent local persist -detach
 
