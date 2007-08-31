@@ -177,11 +177,11 @@ class Samsung(ModemDevice):
         dir = clear_dir_trailing_slash(dir)
         # Perhaps directories are listed by AT+FSDI command.
         self.send('AT+FSDI="' + dir + '"\r\n')
-        for tup in self.__yield__flist__(r'^\+FSDI[^,]+,[^"]*"([^"]+)"'):
+        for tup in self.__yield__flist__(r':[^,]+,[^"]*"([^"]+)"'):
             yield tup + (0, 0)
         # Perhaps files are listed by AT+FSDL command.
         self.send('AT+FSDL="' + dir + '"\r\n')
-        re_flist = r'^\+FSDL[^,]+,[^"]*"([^"]+)"[^,]*,[^,]+,[^,]+,[^,]+,[^,]+,(\d+)[^,]*,[^,]+,[^"]*"([^"]+)"'
+        re_flist = r':[^,]+,[^"]*"([^"]+)"[^,]*,[^,]+,[^,]+,[^,]+,[^,]+,(\d+)[^,]*,[^,]+,[^"]*"([^"]+)"'
         for (fname, fsize, fdate) in self.__yield__flist__(re_flist):
             # Convert date & time to timestamp.
             try:
