@@ -35,13 +35,13 @@ OpenBSD, it comes enabled by default in the GENERIC kernel.
 
 3. INSTALLATION
 
-Just copy samsungfs.py to a directory present in your PATH, like /usr/bin.
+Just copy samsungfs to a directory present in your PATH, like /usr/bin.
 
 4. USAGE
 
 In most cases, you only need to call:
 
-    samsungfs.py mount-point
+    samsungfs mount-point
 
 Then  you  can  access your files at mount-point. When you are done, umount the
 file system by calling:
@@ -55,7 +55,7 @@ or:
 If  your  mobile phone device is not at /dev/cuaU0 nor at /dev/ttyACM0, you can
 modify it via command line when mounting the file system by calling:
 
-    samsungfs.py mount-point -o ttydev=/dev/xxxx
+    samsungfs mount-point -o ttydev=/dev/xxxx
 
 
                                  =============                                 
@@ -88,7 +88,7 @@ comes installed by default.
 
 3. INSTALLATION
 
-Copy samsungjava.py to a directory present in your PATH, like /usr/bin.
+Copy samsungjava to a directory present in your PATH, like /usr/bin.
 
 Under  Linux,  revise  the conf/ppp.setup.example.linux script and modify it if
 you want to satisfy your needs.
@@ -121,7 +121,7 @@ depends on the mobile phone model. See the project wiki.
 Then you will get feedback at your computer terminal, showing that a connection
 was been established. Call SamsungJava:
 
-    samsungjava.py application.jad
+    samsungjava application.jad
 
 Finally,  setup  your mobile phone to do Serial Download. The procedure depends
 on the mobile phone model, too. You will get feedback at the mobile phone  dis-
