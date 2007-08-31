@@ -99,16 +99,6 @@ satisfy your needs and copy it to /etc/ppp/ppp.conf (FreeBSD and OpenBSD) or to
 
 4. USAGE
 
-Before  installing  J2ME applications, check the .jad file using a text editor.
-It must have only the .jar filename as the MIDlet-Jar-URL  parameter,  like  as
-following:
-
-    MIDlet-Jar-URL: application.jar
-
-If it contains an URL, please modify the line that contains it as the above ex-
-ample using the text editor. Then place the .jad and .jar  files  at  the  same
-directory. SamsungJava will not find the .jar file if you don't do that.
-
 Under Linux, call the configuration script to setup PPP.
 
 Under BSD systems, call:
