@@ -28,12 +28,12 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-import sys, os, getopt
+import sys, os, getopt, urllib, string
 import BaseHTTPServer
 
 
 def copyright():
-        print """
+    print """
 Java Uploader for Samsung mobile phones.
 Copyright (c) 2007 Paulo Matias
 
@@ -50,70 +50,131 @@ def usage():
     sys.exit(1)
 
 
-# Display copyright notice.
-copyright()
+def add_dir_to_path(dir, path):
+    """ Returns dir/path. """
+    if (dir != '') and (dir[-1] != '/'):
+        dir += '/'
+    return dir + path
 
-# Default arguments.
-addr = ''
-port = 888
+def mini_wget(url, destdir=''):
+    """ Gets a file at url to the local directory. Reports status to stdout. """
+    filename = os.path.basename(url)
+    def reporthook(tblocks, blocksize, size):
+        percent = (100.0*tblocks*blocksize/size)
+        if percent > 100.0:
+            percent = 100.0
+        sys.stdout.write("\rDownloading '%s'... [%.1f%%]" % (filename, percent))
+        sys.stdout.flush()
+    (filename, headers) = urllib.urlretrieve(url, add_dir_to_path(destdir, filename), reporthook)
+    sys.stdout.write("\n")
+    return filename
 
-# Process options from command line.
-try: opts, args = getopt.getopt(sys.argv[1:], "l:p:")
-except: usage()
-for o, a in opts:
-    if o == '-h':
-        usage()
-    elif o == '-l':
-        addr = a
-    elif o == '-p':
-        port = int(a)
-        
-# Check if files are provided at command line.
-if len(args) == 0:
-    usage()
-    
-# Check if all needed files can be found.
-for filename in args:
-    f = open(filename)
-    for l in f.readlines():
-        l = l.strip().split(' ', 1)
-        if l[0] == 'MIDlet-Jar-URL:':
-            if (l[1].find('://') != -1) or (not os.access(os.path.basename(l[1]), os.R_OK)):
-                sys.stderr.write('File "%s" not found in current directory.\n' % l[1])
-                sys.exit(1)
+def prepare_jad(location):
+    """ Returns a tuple of JAR file location and JAD file contents ready to be sent
+    to the mobile phone. The argument 'location' can be a filename or an url. """
+    # Download JAD file if needed.
+    if '://' in location:
+        location = mini_wget(location)
+    # Open file and read contents.
+    f = open(location)
+    lines = f.readlines()
     f.close()
+    # Get JAD file directory.
+    jad_dir = os.path.dirname(location)
+    # Parse MIDlet-Jar-URL.
+    jar_url = None
+    for i in range(len(lines)):
+        line = lines[i]
+        (option, value) = [s.strip() for s in line.split(':', 1)]
+        if option.lower() == 'midlet-jar-url':
+            # Found.
+            jar_url = value
+            # Download JAR file if needed.
+            if '://' in jar_url:
+                jar_url = mini_wget(jar_url, jad_dir)
+                # Replace at current line.
+                lines[i] = 'MIDlet-Jar-URL: %s\n' % os.path.basename(jar_url)
+            else:
+                # Add JAD directory to JAR path.
+                jar_url = add_dir_to_path(jad_dir, jar_url)
+    if jar_url is None:
+        raise SyntaxError, 'JAD file does not contain MIDlet-Jar-URL.'
+    # Returns jar_url and JAD file contents.
+    return (jar_url, string.join(lines, ''))
 
 
-# Our request handler.
-class http_handler(BaseHTTPServer.BaseHTTPRequestHandler):
-    server_version = 'PyJUp/20070801'
-    def do_GET(self):
-        global args
-        basename = self.path[self.path.rindex('/')+1:]
-        if basename == 'getNextApp.jad':
-            # Read next JAD file.
-            f = open(args[0])
-            content = f.read()
-            f.close()
-            # Remove from list.
-            args = args[1:]
-            # Set content type.
-            content_type = 'text/vnd.sun.j2me.app-descriptor'
-        else:
-            # Read a JAR file.
-            f = open(basename)
-            content = f.read()
-            f.close()
-            # Set content type.
-            content_type = 'application/java-archive'
-        self.send_response(200)
-        self.send_header('Connection', 'close')
-        self.send_header('Content-type', content_type)
-        self.send_header('Content-Length', len(content))
-        self.end_headers()
-        self.wfile.write(content)
+def main():
+    
+    # Display copyright notice.
+    copyright()
+    
+    # Default arguments.
+    addr = ''
+    port = 888
+    
+    # Process options from command line.
+    try: opts, args = getopt.getopt(sys.argv[1:], "l:p:")
+    except: usage()
+    for o, a in opts:
+        if o == '-h':
+            usage()
+        elif o == '-l':
+            addr = a
+        elif o == '-p':
+            port = int(a)
             
+    # Check if files are provided at command line.
+    if len(args) == 0:
+        usage()
+        
+    # Declare this stuff global, so we can easily access them.
+    # XXX Is there any better way?
+    global jad_files, jar_files
+    
+    # Initialize lists for JAD file contents and JAR file locations.
+    jad_files = []
+    jar_files = []
+        
+    # Prepare JAD files for sending.
+    for jad_location in args:
+        (jar_location, jad_contents) = prepare_jad(jad_location)
+        if not os.path.exists(jar_location):
+            raise IOError, 'JAR file not found.'
+        jad_files.append(jad_contents)
+        jar_files.append(jar_location)
+    
+    # Our request handler.
+    class http_handler(BaseHTTPServer.BaseHTTPRequestHandler):
+        server_version = 'SamsuJ/cvs'
+        def do_GET(self):
+            global jad_files, jar_files
+            
+            basename = os.path.basename(self.path)
+            if basename.lower() == 'getnextapp.jad':
+                content_type = 'text/vnd.sun.j2me.app-descriptor'
+                content   = jad_files[0]
+                jad_files = jad_files[1:]
+            else:
+                content_type = 'application/java-archive'
+                jar_location = jar_files[0]
+                if os.path.basename(jar_location) != basename:
+                    raise IOError, 'Unexpected GET request from mobile phone.'
+                f = open(jar_location)
+                content = f.read()
+                f.close()
+                jar_files = jar_files[1:]
+                
+            self.send_response(200)
+            self.send_header('Connection', 'close')
+            self.send_header('Content-type', content_type)
+            self.send_header('Content-Length', len(content))
+            self.end_headers()
+            self.wfile.write(content)
+    
+    # Create HTTP server.
+    http_server = BaseHTTPServer.HTTPServer((addr, port), http_handler)
+    http_server.serve_forever()
+    
+if __name__ == '__main__':
+    main()
 
-# Create HTTP server.
-http_server = BaseHTTPServer.HTTPServer((addr, port), http_handler)
-http_server.serve_forever()
