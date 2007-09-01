@@ -140,7 +140,7 @@ class Samsung(ModemDevice):
         
         self.send('AT+CGMI\r\n')
         (i, r) = self.recv(['OK\r\n'])
-        if (i != 0) or (r.upper().find('SAMSUNG') == -1):
+        if (i != 0) or (not 'SAMSUNG' in r.upper()):
             raise UnexpectedResponse, r
 
         self.send('AT+CGMM\r\n')

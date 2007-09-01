@@ -171,6 +171,10 @@ def main():
             self.end_headers()
             self.wfile.write(content)
     
+    print
+    print 'Ready to send files to the mobile phone.'
+    print
+    
     # Create HTTP server.
     http_server = BaseHTTPServer.HTTPServer((addr, port), http_handler)
     http_server.serve_forever()

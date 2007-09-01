@@ -24,9 +24,8 @@ and videos recorded from your mobile phone camera.
 
 Install  FUSE  and fuse-python in your operating system. Under Linux, it should
 be available in your  distribution  package  repository.  Under  FreeBSD,  it's
-available  in  Ports. Under NetBSD, it should be possible to use librefuse, but
-it will be available only in NetBSD 5. As the date of writing, OpenBSD  had  no
-plans to support FUSE.
+available in ports. Under NetBSD, you can install it from pkgsrc if your NetBSD
+version is at least 4.99 (NetBSD-current at the time of this writing).
 
 You  must  have USB ACM support enabled. Under Linux, the option CONFIG_USB_ACM
 must be enabled in kernel build. It should come by default  in  most  distribu-
@@ -52,8 +51,8 @@ or:
 
     umount mount-point
 
-If  your  mobile phone device is not at /dev/cuaU0 nor at /dev/ttyACM0, you can
-modify it via command line when mounting the file system by calling:
+If your mobile phone device is not at any of the recognized locations,  you can
+modify it by command line when mounting the file system by calling:
 
     samsungfs mount-point -o ttydev=/dev/xxxx
 
@@ -66,14 +65,14 @@ modify it via command line when mounting the file system by calling:
 
 SamsungJava  allows  you to install Java J2ME applications in your mobile phone
 for free via USB cable. Without SamsungJava, these applications could  only  be
-installed by tariffed WAP transfer.
+installed by paid WAP transfer.
 
 2. PREREQUISITES
 
 Install Python in your operating system. Under Linux, it should be available in
 your distribution package repository, although a lot of distributions come with
 Python  installed by default these days. Under FreeBSD and OpenBSD, it's avail-
-able in Ports. Under NetBSD, it's available in Pkgsrc.
+able in ports. Under NetBSD, it's available in pkgsrc.
 
 You  must  have USB ACM support enabled. Under Linux, the option CONFIG_USB_ACM
 must be enabled in kernel build. It should come by default  in  most  distribu-
