@@ -85,7 +85,8 @@ def prepare_jad(location):
     jar_url = None
     for i in range(len(lines)):
         line = lines[i]
-        (option, value) = [s.strip() for s in line.split(':', 1)]
+        try: (option, value) = [s.strip() for s in line.split(':', 1)]
+        except: continue # ignore unrecognized line (bug reported by Rui Vilela)
         if option.lower() == 'midlet-jar-url':
             # Found.
             jar_url = value
