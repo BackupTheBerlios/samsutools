@@ -28,7 +28,7 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #
 
-version = 'SamsungFS CVS'
+version = 'SamsungFS 20080409'
 
 
 import sys, os, tty, fcntl, re, time, select, struct, zlib
@@ -105,6 +105,26 @@ class ModemDevice:
             if time.time() > max_time:
                 return (None, buf)
     
+    def recv_time(self, timeout = 1.0):
+        
+        max_time = time.time() + timeout  # Timestamp of the timeout time.
+        buf = ''
+        
+        while 1:
+            if len(select.select([self.__fd__], [], [], self.timeout_resolution)[0]) == 1:
+                # New data -> new timeout time
+                max_time = time.time() + timeout  
+                # There is new data, read it.
+                buf += os.read(self.__fd__, 1024)
+                # Skip data if there is data to skip.
+                if self.__skip__ != 0:
+                    skip = min(self.__skip__, len(buf))
+                    buf = buf[skip:]
+                    self.__skip__ -= skip
+            # Check for timeout.
+            if time.time() > max_time:
+                return buf
+
 
 def dir_and_basename(path):
     """ Separates dir from base filename. Returns a tuple (dir, filename). """
@@ -270,56 +290,94 @@ class Samsung(ModemDevice):
         self.send('##>\r\n', False)   # Request more data.
         buf = ''
         expected_count = 0
-        while 1:
-            # #OK# -> there is more data. OK -> end of data.
-            (i, r) = self.recv(['#OK#\r\n', '\r\nOK\r\n'])
+        if self.model == 'SAMSUNG SGH-D900i':
+            # SGH-D900i has a strange behaviour: we need to read all the data
+            # at the same time, otherwise it perhaps gets lost. It doesn't
+            # wait for our '##>' response to send more data.
+            # Thanks for Michal Zukowski for reporting this and for writing
+            # this workaround.
+            self.log('tk++ get for SGH-D900i')
+            # read until end of data.
+            r = self.recv_time()
             self.log("Recv %i bytes" % len(r))
             self.log("r = " + ''.join(["%02x "%ord(x) for x in r]))
             #self.log("r = " + repr(r))
-            if i != 0:
-                self.log("Finished getting " + filename)
-                return buf
-            if (self.model != 'SGH-J600') and (',' in r[6:18]):
-                # We generalize that if a comma is present, it should be the old
-                # supported protocol (i.e. SGH-E2xx). Otherwise, we do assume it
-                # should be the same protocol as J600.
-                r = r.split(',', 3)
-                crc32 = int(r[2])
-                # Mobile phone sends signed CRC32 of data of current packet. Check it.
-                self.check_crc32(crc32, r[3])
-                # Add received data to buffer.
-                buf += r[3]
-            else:
-                # J600 sends back +FSFR:, followed by 4 bytes that seem to be
-                # a block size, followed by 4 bytes that seem to be a counter,
-                # followed by 4 bytes that seem to be a CRC, followed by data.
-                # (thanks to Ryan T. Sammartino)
-
-                # For whatever reason, sometimes we get two or more packets
-                # at once
-                while len(r):                
-                    header = r[0:6]
-                    if header != "+FSFR:":
+            while len(r):                
+                header = r[0:6]
+                if header != "+FSFR:":
+                    if header != '\r\nOK\r\n':
                         self.log("Invalid header received: got %s" % header)
                         raise IOError, 'Invalid header.'
-                    block_size = struct.unpack("i", r[6:10])[0]
-                    if block_size == 0:
-                        self.log("Invalid block size received: %i" % block_size)
-                        raise IOError, 'Invalid block size.'
-                    count = struct.unpack("i", r[10:14])[0]
-                    if count != expected_count:
-                        self.log("Invalid count received. Expected %i got %i" % (expected_count, count))
-                        raise IOError, 'Invalid count.'
-                    expected_count += 1
-                    crc32 = struct.unpack("i", r[14:18])[0]
-                    data = r[18:18+block_size]
-                    self.check_crc32(crc32, data)
-                    buf += data
-                    r = r[18+block_size:]
-                    if r[0:6] == '#OK#\r\n':
-                        r = r[6:]
-            # Request more data.
-            self.send('##>\r\n', False)
+                    break
+                block_size = struct.unpack("i", r[6:10])[0]
+                if block_size == 0:
+                    self.log("Invalid block size received: %i" % block_size)
+                    raise IOError, 'Invalid block size.'
+                count = struct.unpack("i", r[10:14])[0]
+                if count != expected_count:
+                    self.log("Invalid count received. Expected %i got %i" % (expected_count, count))
+                    raise IOError, 'Invalid count.'
+                expected_count += 1
+                crc32 = struct.unpack("i", r[14:18])[0]
+                data = r[18:18+block_size]
+                self.check_crc32(crc32, data)
+                buf += data
+                r = r[18+block_size:]
+                if (r[0:6] == '#OK#\r\n'):
+                    r = r[6:]
+            self.log("Finished getting " + filename)
+            return buf
+        else:
+            while 1:
+                # #OK# -> there is more data. OK -> end of data.
+                (i, r) = self.recv(['#OK#\r\n', '\r\nOK\r\n'])
+                self.log("Recv %i bytes" % len(r))
+                self.log("r = " + ''.join(["%02x "%ord(x) for x in r]))
+                #self.log("r = " + repr(r))
+                if i != 0:
+                    self.log("Finished getting " + filename)
+                    return buf
+                if (self.model != 'SGH-J600')  and (',' in r[6:18]):
+                    # We generalize that if a comma is present, it should be the old
+                    # supported protocol (i.e. SGH-E2xx). Otherwise, we do assume it
+                    # should be the same protocol as J600.
+                    r = r.split(',', 3)
+                    crc32 = int(r[2])
+                    # Mobile phone sends signed CRC32 of data of current packet. Check it.
+                    self.check_crc32(crc32, r[3])
+                    # Add received data to buffer.
+                    buf += r[3]
+                else:
+                    # J600 sends back +FSFR:, followed by 4 bytes that seem to be
+                    # a block size, followed by 4 bytes that seem to be a counter,
+                    # followed by 4 bytes that seem to be a CRC, followed by data.
+                    # (thanks to Ryan T. Sammartino)	
+    
+                    # For whatever reason, sometimes we get two or more packets
+                    # at once
+                    while len(r):                
+                        header = r[0:6]
+                        if header != "+FSFR:":
+                            self.log("Invalid header received: got %s" % header)
+                            raise IOError, 'Invalid header.'
+                        block_size = struct.unpack("i", r[6:10])[0]
+                        if block_size == 0:
+                            self.log("Invalid block size received: %i" % block_size)
+                            raise IOError, 'Invalid block size.'
+                        count = struct.unpack("i", r[10:14])[0]
+                        if count != expected_count:
+                            self.log("Invalid count received. Expected %i got %i" % (expected_count, count))
+                            raise IOError, 'Invalid count.'
+                        expected_count += 1
+                        crc32 = struct.unpack("i", r[14:18])[0]
+                        data = r[18:18+block_size]
+                        self.check_crc32(crc32, data)
+                        buf += data
+                        r = r[18+block_size:]
+                        if r[0:6] == '#OK#\r\n':
+                            r = r[6:]
+                # Request more data.
+                self.send('##>\r\n', False)		
 
 
     def put(self, filename, data):
